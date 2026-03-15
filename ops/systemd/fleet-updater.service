@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Antimony Fleet Agent from GitHub Releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/antimony/fleet-updater.env
+ExecStart=/usr/local/bin/update-fleet-agent-from-release.sh
