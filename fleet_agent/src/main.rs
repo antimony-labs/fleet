@@ -1,5 +1,5 @@
 use shared_types::NodeTelemetry;
-use sysinfo::{CpuRefreshKind, RefreshKind, System};
+use sysinfo::{System, Disks};
 use std::time::{SystemTime, UNIX_EPOCH};
 use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,8 @@ struct Claims {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown_node".to_string());
+    let hostname = std::env::var("FLEET_NODE_NAME")
+        .unwrap_or_else(|_| System::host_name().unwrap_or_else(|| "unknown_node".to_string()));
     // Load the private key injected by the vault
     let private_key_pem = std::env::var("FLEET_PRIVATE_KEY")
         .expect("FLEET_PRIVATE_KEY environment variable is required to authenticate with the Core API");
@@ -23,19 +24,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Starting Fleet Agent for node: {}", hostname);
 
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(sysinfo::MemoryRefreshKind::everything()));
+    let mut sys = System::new_all();
+    let mut disks = Disks::new_with_refreshed_list();
     
     // Wait for the first CPU tick to calculate usage accurately
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     loop {
-        sys.refresh_cpu();
-        sys.refresh_memory();
+        sys.refresh_all();
 
         let cpu_usage = sys.global_cpu_info().cpu_usage();
-        let ram_used_mb = sys.used_memory() / 1024 / 1024;
-        let ram_total_mb = sys.total_memory() / 1024 / 1024;
+        let ram_used_mb = (sys.used_memory() / 1024 / 1024) as i64;
+        let ram_total_mb = (sys.total_memory() / 1024 / 1024) as i64;
         
+        let load_avg = System::load_average();
+        let uptime_secs = System::uptime() as i64;
+        
+        let mut disk_used_bytes = 0;
+        let mut disk_total_bytes = 0;
+        disks.refresh_list();
+        for disk in disks.list() {
+            disk_total_bytes += disk.total_space();
+            disk_used_bytes += disk.total_space() - disk.available_space();
+        }
+        
+        let disk_used_gb = disk_used_bytes as f32 / (1024.0 * 1024.0 * 1024.0);
+        let disk_total_gb = disk_total_bytes as f32 / (1024.0 * 1024.0 * 1024.0);
+
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
         let payload = NodeTelemetry {
@@ -43,6 +58,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cpu_usage,
             ram_used_mb,
             ram_total_mb,
+            load_avg_1m: load_avg.one as f32,
+            load_avg_5m: load_avg.five as f32,
+            load_avg_15m: load_avg.fifteen as f32,
+            uptime_secs,
+            disk_used_gb,
+            disk_total_gb,
             tailscale_ip: get_tailscale_ip(),
             timestamp_sec: now as i64,
         };
@@ -128,6 +149,12 @@ mod tests {
             cpu_usage: 12.5,
             ram_used_mb: 1024,
             ram_total_mb: 8192,
+            load_avg_1m: 1.2,
+            load_avg_5m: 1.0,
+            load_avg_15m: 0.8,
+            uptime_secs: 3600,
+            disk_used_gb: 40.5,
+            disk_total_gb: 512.0,
             tailscale_ip: "100.83.147.83".to_string(),
             timestamp_sec: now as i64,
         };
