@@ -1,0 +1,13 @@
+[package]
+name = "fleet_agent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shared_types = { path = "../../core/shared_types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.40", features = ["full", "time"] }
+reqwest = { version = "0.12", features = ["json"] }
+jsonwebtoken = "9.3"
+sysinfo = "0.30"

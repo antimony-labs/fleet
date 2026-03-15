@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "fleet_agent"
+]
+resolver = "2"
